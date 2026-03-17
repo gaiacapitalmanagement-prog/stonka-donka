@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(node -e \"const yf = require\\(''yahoo-finance2''\\); console.log\\(typeof yf.default?.quote, typeof yf.quote\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\(''''exports'''',{}\\), indent=2\\)\\)\")",
+      "Bash(node -e \"const p = require\\(''''/c/Users/bodhi/Desktop/Bodhi persoonlijk/coding projects/stonka-donka/node_modules/yahoo-finance2/package.json''''\\); console.log\\(JSON.stringify\\(p.exports, null, 2\\)\\)\")",
+      "Bash(export PATH=\"$PATH:/c/Program Files/GitHub CLI\")",
+      "Bash(gh auth:*)",
+      "Bash(gh repo:*)",
+      "Skill(claude-api)",
+      "WebSearch",
+      "Bash(npm uninstall:*)",
+      "Bash(curl -s \"https://finnhub.io/api/v1/company-news?symbol=ASTS&from=2026-03-10&to=2026-03-17&token=d6splj1r01qoqoir0os0d6splj1r01qoqoir0osg\")"
+    ]
+  }
+}
