@@ -245,13 +245,19 @@ function SkeletonCard() {
 
 /* ── Main export ── */
 
-export function SentimentTracker() {
+export function SentimentTracker({ tickers, names }: { tickers: string[]; names: string[] }) {
   const [stocks, setStocks] = useState<StockSentiment[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
 
+  const tickerKey = tickers.join(",")
+  const nameKey = names.join(",")
+
   useEffect(() => {
-    fetch("/api/sentiment")
+    if (!tickerKey) { setLoading(false); return }
+    setLoading(true)
+    setError(false)
+    fetch(`/api/sentiment?tickers=${encodeURIComponent(tickerKey)}&names=${encodeURIComponent(nameKey)}`)
       .then((res) => {
         if (!res.ok) throw new Error()
         return res.json()
@@ -264,12 +270,12 @@ export function SentimentTracker() {
         setError(true)
         setLoading(false)
       })
-  }, [])
+  }, [tickerKey, nameKey])
 
   if (loading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-        {[...Array(5)].map((_, i) => <SkeletonCard key={i} />)}
+        {[...Array(tickers.length || 5)].map((_, i) => <SkeletonCard key={i} />)}
       </div>
     )
   }

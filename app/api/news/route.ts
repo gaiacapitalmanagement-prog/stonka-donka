@@ -1,24 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-const US_TICKERS = ["ASTS", "QS", "RKLB", "SYM"]
-const ALL_TICKERS = ["ASTS", "QS", "RKLB", "SYM", "HG.CN"]
 const PAGE_SIZE = 15
-
-// Keywords to verify a headline actually relates to a ticker
-const TICKER_KEYWORDS: Record<string, string[]> = {
-  ASTS:    ["ASTS", "AST SpaceMobile", "SpaceMobile"],
-  QS:      ["QS", "QuantumScape"],
-  RKLB:    ["RKLB", "Rocket Lab", "RocketLab"],
-  SYM:     ["SYM", "Symbotic"],
-  "HG.CN": ["HG", "Hydrograph", "HydrographCP", "Hydrograph Clean Power"],
-}
-
-function headlineMentionsTicker(headline: string, ticker: string): boolean {
-  const keywords = TICKER_KEYWORDS[ticker]
-  if (!keywords) return true // unknown ticker, keep it
-  const upper = headline.toUpperCase()
-  return keywords.some((kw) => upper.includes(kw.toUpperCase()))
-}
 
 type NewsItem = {
   headline: string
@@ -28,21 +10,38 @@ type NewsItem = {
   tickers: string[]
 }
 
-// ── In-memory cache ──
-let cache: { items: NewsItem[]; ts: number } = { items: [], ts: 0 }
+// ── Cache keyed by sorted ticker string ──
+const cacheMap = new Map<string, { items: NewsItem[]; ts: number }>()
 const TTL = 5 * 60_000
 
-// ── Finnhub: company news (US tickers, 30-day window) ──
-async function fetchFinnhub(): Promise<NewsItem[]> {
+function isUSTicker(ticker: string): boolean {
+  return !ticker.includes(".")
+}
+
+function headlineMentionsTicker(headline: string, ticker: string): boolean {
+  const upper = headline.toUpperCase()
+  // Check the ticker itself
+  if (upper.includes(ticker.toUpperCase())) return true
+  // Check without exchange suffix
+  const base = ticker.replace(/\.\w+$/, "")
+  if (base !== ticker && upper.includes(base.toUpperCase())) return true
+  return false
+}
+
+// ── Finnhub: company news (US tickers only) ──
+async function fetchFinnhub(tickers: string[]): Promise<NewsItem[]> {
   const key = process.env.FINNHUB_API_KEY
   if (!key) return []
+
+  const usTickers = tickers.filter(isUSTicker)
+  if (usTickers.length === 0) return []
 
   const today = new Date()
   const monthAgo = new Date(today.getTime() - 30 * 86_400_000)
   const fmt = (d: Date) => d.toISOString().split("T")[0]
 
   const results = await Promise.allSettled(
-    US_TICKERS.map(async (ticker) => {
+    usTickers.map(async (ticker) => {
       const res = await fetch(
         `https://finnhub.io/api/v1/company-news?symbol=${ticker}&from=${fmt(monthAgo)}&to=${fmt(today)}&token=${key}`
       )
@@ -65,7 +64,7 @@ async function fetchFinnhub(): Promise<NewsItem[]> {
     .flatMap((r) => r.value)
 }
 
-// ── Alpha Vantage: news sentiment (all tickers in one call) ──
+// ── Alpha Vantage: news sentiment (US tickers only) ──
 function parseAVDate(s: string): string | null {
   const m = s.match(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/)
   if (!m) return null
@@ -73,14 +72,17 @@ function parseAVDate(s: string): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString()
 }
 
-async function fetchAlphaVantage(): Promise<NewsItem[]> {
+async function fetchAlphaVantage(tickers: string[]): Promise<NewsItem[]> {
   const key = process.env.ALPHAVANTAGE_API_KEY
   if (!key) return []
 
+  const usTickers = tickers.filter(isUSTicker)
+  if (usTickers.length === 0) return []
+
   try {
-    const tickers = US_TICKERS.join(",")
+    const tickerStr = usTickers.join(",")
     const res = await fetch(
-      `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=${tickers}&limit=200&apikey=${key}`
+      `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=${tickerStr}&limit=200&apikey=${key}`
     )
     if (!res.ok) return []
     const data = await res.json()
@@ -91,7 +93,7 @@ async function fetchAlphaVantage(): Promise<NewsItem[]> {
       .map((item: any) => {
         const pubDate = parseAVDate(item.time_published || "")
         if (!pubDate) return null
-        const matched = US_TICKERS.filter((t) =>
+        const matched = usTickers.filter((t) =>
           (item.ticker_sentiment || []).some((ts: any) => ts.ticker === t)
         )
         return {
@@ -108,10 +110,10 @@ async function fetchAlphaVantage(): Promise<NewsItem[]> {
   }
 }
 
-// ── Yahoo RSS feeds (per ticker) ──
-async function fetchYahooRSS(): Promise<NewsItem[]> {
+// ── Yahoo RSS feeds (all tickers) ──
+async function fetchYahooRSS(tickers: string[]): Promise<NewsItem[]> {
   const results = await Promise.allSettled(
-    ALL_TICKERS.map(async (ticker) => {
+    tickers.map(async (ticker) => {
       try {
         const res = await fetch(
           `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encodeURIComponent(ticker)}&region=US&lang=en-US`
@@ -155,13 +157,13 @@ async function fetchYahooRSS(): Promise<NewsItem[]> {
 }
 
 // ── Yahoo Finance search via yahoo-finance2 ──
-async function fetchYahooSearch(): Promise<NewsItem[]> {
+async function fetchYahooSearch(tickers: string[]): Promise<NewsItem[]> {
   try {
     const YahooFinance = (await import("yahoo-finance2")).default
     const yf = new YahooFinance()
 
     const results = await Promise.allSettled(
-      ALL_TICKERS.map(async (ticker) => {
+      tickers.map(async (ticker) => {
         try {
           const result = await (yf as any).search(ticker)
           const news = Array.isArray(result?.news) ? result.news : []
@@ -189,14 +191,16 @@ async function fetchYahooSearch(): Promise<NewsItem[]> {
 }
 
 // ── Aggregate, deduplicate, sort ──
-async function getAllNews(): Promise<NewsItem[]> {
-  if (cache.items.length > 0 && Date.now() - cache.ts < TTL) return cache.items
+async function getAllNews(tickers: string[]): Promise<NewsItem[]> {
+  const cacheKey = [...tickers].sort().join(",")
+  const cached = cacheMap.get(cacheKey)
+  if (cached && Date.now() - cached.ts < TTL) return cached.items
 
   const [finnhub, alphaVantage, yahooRSS, yahooSearch] = await Promise.allSettled([
-    fetchFinnhub(),
-    fetchAlphaVantage(),
-    fetchYahooRSS(),
-    fetchYahooSearch(),
+    fetchFinnhub(tickers),
+    fetchAlphaVantage(tickers),
+    fetchYahooRSS(tickers),
+    fetchYahooSearch(tickers),
   ])
 
   const all = [
@@ -235,14 +239,21 @@ async function getAllNews(): Promise<NewsItem[]> {
 
   deduped.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime())
 
-  cache = { items: deduped, ts: Date.now() }
+  cacheMap.set(cacheKey, { items: deduped, ts: Date.now() })
   return deduped
 }
 
 export async function GET(request: NextRequest) {
   try {
     const page = parseInt(request.nextUrl.searchParams.get("page") || "0")
-    const news = await getAllNews()
+    const raw = request.nextUrl.searchParams.get("tickers") || ""
+    const tickers = raw.split(",").map((t) => t.trim()).filter(Boolean).slice(0, 15)
+
+    if (tickers.length === 0) {
+      return NextResponse.json({ items: [], hasMore: false, total: 0, page: 0 })
+    }
+
+    const news = await getAllNews(tickers)
     const start = page * PAGE_SIZE
     const items = news.slice(start, start + PAGE_SIZE)
 

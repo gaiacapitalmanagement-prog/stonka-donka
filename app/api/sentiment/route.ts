@@ -1,13 +1,5 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import Anthropic from "@anthropic-ai/sdk"
-
-const STOCKS = [
-  { ticker: "ASTS",   name: "AST SpaceMobile", search: ["ASTS", "AST SpaceMobile"] },
-  { ticker: "HG.CN",  name: "Hydrograph",      search: ["HG", "Hydrograph", "Hydrograph Clean Power"] },
-  { ticker: "QS",     name: "QuantumScape",    search: ["QS", "QuantumScape"] },
-  { ticker: "RKLB",   name: "Rocket Lab",      search: ["RKLB", "Rocket Lab", "RocketLab"] },
-  { ticker: "SYM",    name: "Symbotic",        search: ["SYM", "Symbotic"] },
-]
 
 const BULLISH = [
   "buy", "calls", "call", "moon", "mooning", "rocket", "bull", "bullish",
@@ -45,9 +37,21 @@ type StockSentiment = {
   explanation: string
 }
 
-// ── Cache ──
-let cache: { data: StockSentiment[]; ts: number } = { data: [], ts: 0 }
+type StockInput = { ticker: string; name: string }
+
+// ── Cache keyed by sorted ticker string ──
+const cacheMap = new Map<string, { data: StockSentiment[]; ts: number }>()
 const TTL = 15 * 60_000
+
+function buildSearchTerms(ticker: string, name: string): string[] {
+  const terms = [ticker]
+  // Add ticker without exchange suffix (e.g. HG.CN -> HG)
+  const base = ticker.replace(/\.\w+$/, "")
+  if (base !== ticker) terms.push(base)
+  // Add company name and individual words longer than 4 chars
+  if (name) terms.push(name)
+  return terms
+}
 
 function analyzeSentiment(text: string): "bullish" | "bearish" | "neutral" {
   const lower = text.toLowerCase()
@@ -89,7 +93,6 @@ async function getRedditSentiment(searchTerms: string[]): Promise<SourceSentimen
       else neutral += weight
     }
 
-    // Extract top posts by score
     const topPosts: PostLink[] = [...posts]
       .sort((a: any, b: any) => (b.data?.score || 0) - (a.data?.score || 0))
       .slice(0, 10)
@@ -114,7 +117,7 @@ async function getRedditSentiment(searchTerms: string[]): Promise<SourceSentimen
 }
 
 // ── WSB hot posts for trending detection ──
-async function getWSBHotMentions(): Promise<Map<string, number>> {
+async function getWSBHotMentions(stocks: StockInput[]): Promise<Map<string, number>> {
   const counts = new Map<string, number>()
   try {
     const res = await fetch(
@@ -130,8 +133,9 @@ async function getWSBHotMentions(): Promise<Map<string, number>> {
 
     for (const post of posts) {
       const text = `${post.data?.title || ""} ${post.data?.selftext || ""}`.toUpperCase()
-      for (const stock of STOCKS) {
-        for (const term of stock.search) {
+      for (const stock of stocks) {
+        const terms = buildSearchTerms(stock.ticker, stock.name)
+        for (const term of terms) {
           if (text.includes(term.toUpperCase())) {
             counts.set(stock.ticker, (counts.get(stock.ticker) || 0) + 1)
             break
@@ -192,14 +196,17 @@ TICKER: sentence`,
 }
 
 // ── Aggregate ──
-async function getSentiment(): Promise<StockSentiment[]> {
-  if (cache.data.length > 0 && Date.now() - cache.ts < TTL) return cache.data
+async function getSentiment(stocks: StockInput[]): Promise<StockSentiment[]> {
+  const cacheKey = stocks.map((s) => s.ticker).sort().join(",")
+  const cached = cacheMap.get(cacheKey)
+  if (cached && Date.now() - cached.ts < TTL) return cached.data
 
-  const hotMentions = await getWSBHotMentions()
+  const hotMentions = await getWSBHotMentions(stocks)
 
   const results: StockSentiment[] = await Promise.all(
-    STOCKS.map(async (stock) => {
-      const reddit = await getRedditSentiment(stock.search)
+    stocks.map(async (stock) => {
+      const searchTerms = buildSearchTerms(stock.ticker, stock.name)
+      const reddit = await getRedditSentiment(searchTerms)
       const overall = reddit ? reddit.bullish : 50
 
       const hotCount = hotMentions.get(stock.ticker) || 0
@@ -220,17 +227,31 @@ async function getSentiment(): Promise<StockSentiment[]> {
   for (const r of results) {
     r.explanation =
       explanations.get(r.ticker) ||
-      explanations.get(r.ticker.replace(".CN", "")) ||
+      explanations.get(r.ticker.replace(/\.\w+$/, "")) ||
       ""
   }
 
-  cache = { data: results, ts: Date.now() }
+  cacheMap.set(cacheKey, { data: results, ts: Date.now() })
   return results
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const sentiments = await getSentiment()
+    const raw = request.nextUrl.searchParams.get("tickers") || ""
+    const names = request.nextUrl.searchParams.get("names") || ""
+    const tickerList = raw.split(",").map((t) => t.trim()).filter(Boolean).slice(0, 15)
+    const nameList = names.split(",").map((n) => n.trim())
+
+    if (tickerList.length === 0) {
+      return NextResponse.json({ stocks: [] })
+    }
+
+    const stocks: StockInput[] = tickerList.map((ticker, i) => ({
+      ticker,
+      name: nameList[i] || ticker,
+    }))
+
+    const sentiments = await getSentiment(stocks)
     return NextResponse.json({ stocks: sentiments })
   } catch {
     return NextResponse.json({ stocks: [] }, { status: 500 })

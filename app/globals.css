@@ -18,6 +18,7 @@
   --skeleton: rgba(0, 0, 0, 0.05);
   --bar-bg: rgba(0, 0, 0, 0.06);
   --btn-hover: #333333;
+  --accent-color: #2563eb;
 }
 
 .dark {
@@ -37,6 +38,7 @@
   --skeleton: rgba(255, 255, 255, 0.05);
   --bar-bg: rgba(255, 255, 255, 0.05);
   --btn-hover: #e4e4e7;
+  --accent-color: #3b82f6;
 }
 
 @theme inline {
