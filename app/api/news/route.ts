@@ -4,6 +4,22 @@ const US_TICKERS = ["ASTS", "QS", "RKLB", "SYM"]
 const ALL_TICKERS = ["ASTS", "QS", "RKLB", "SYM", "HG.CN"]
 const PAGE_SIZE = 15
 
+// Keywords to verify a headline actually relates to a ticker
+const TICKER_KEYWORDS: Record<string, string[]> = {
+  ASTS:    ["ASTS", "AST SpaceMobile", "SpaceMobile"],
+  QS:      ["QS", "QuantumScape"],
+  RKLB:    ["RKLB", "Rocket Lab", "RocketLab"],
+  SYM:     ["SYM", "Symbotic"],
+  "HG.CN": ["HG", "Hydrograph", "HydrographCP", "Hydrograph Clean Power"],
+}
+
+function headlineMentionsTicker(headline: string, ticker: string): boolean {
+  const keywords = TICKER_KEYWORDS[ticker]
+  if (!keywords) return true // unknown ticker, keep it
+  const upper = headline.toUpperCase()
+  return keywords.some((kw) => upper.includes(kw.toUpperCase()))
+}
+
 type NewsItem = {
   headline: string
   source: string
@@ -32,13 +48,15 @@ async function fetchFinnhub(): Promise<NewsItem[]> {
       )
       if (!res.ok) return []
       const data = await res.json()
-      return (data as any[]).map((item) => ({
-        headline: item.headline,
-        source: item.source || "Finnhub",
-        pubDate: new Date(item.datetime * 1000).toISOString(),
-        link: item.url,
-        tickers: [ticker],
-      }))
+      return (data as any[])
+        .filter((item) => headlineMentionsTicker(item.headline || "", ticker))
+        .map((item) => ({
+          headline: item.headline,
+          source: item.source || "Finnhub",
+          pubDate: new Date(item.datetime * 1000).toISOString(),
+          link: item.url,
+          tickers: [ticker],
+        }))
     })
   )
 
@@ -48,10 +66,11 @@ async function fetchFinnhub(): Promise<NewsItem[]> {
 }
 
 // ── Alpha Vantage: news sentiment (all tickers in one call) ──
-function parseAVDate(s: string): string {
+function parseAVDate(s: string): string | null {
   const m = s.match(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/)
-  if (!m) return new Date().toISOString()
-  return new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`).toISOString()
+  if (!m) return null
+  const d = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`)
+  return isNaN(d.getTime()) ? null : d.toISOString()
 }
 
 async function fetchAlphaVantage(): Promise<NewsItem[]> {
@@ -68,18 +87,22 @@ async function fetchAlphaVantage(): Promise<NewsItem[]> {
     const feed = data?.feed
     if (!Array.isArray(feed)) return []
 
-    return feed.map((item: any) => {
-      const matched = US_TICKERS.filter((t) =>
-        (item.ticker_sentiment || []).some((ts: any) => ts.ticker === t)
-      )
-      return {
-        headline: item.title || "",
-        source: item.source || "Alpha Vantage",
-        pubDate: parseAVDate(item.time_published || ""),
-        link: item.url || "",
-        tickers: matched.length > 0 ? matched : [],
-      }
-    })
+    return feed
+      .map((item: any) => {
+        const pubDate = parseAVDate(item.time_published || "")
+        if (!pubDate) return null
+        const matched = US_TICKERS.filter((t) =>
+          (item.ticker_sentiment || []).some((ts: any) => ts.ticker === t)
+        )
+        return {
+          headline: item.title || "",
+          source: item.source || "Alpha Vantage",
+          pubDate,
+          link: item.url || "",
+          tickers: matched.length > 0 ? matched : [],
+        }
+      })
+      .filter((x): x is NewsItem => x !== null)
   } catch {
     return []
   }
@@ -108,11 +131,12 @@ async function fetchYahooRSS(): Promise<NewsItem[]> {
           const pubDate =
             block.match(/<pubDate>(.*?)<\/pubDate>/)?.[1] || ""
 
-          if (title && link) {
+          const parsedDate = pubDate ? new Date(pubDate) : null
+          if (title && link && parsedDate && !isNaN(parsedDate.getTime()) && headlineMentionsTicker(title, ticker)) {
             items.push({
               headline: title,
               source: "Yahoo Finance",
-              pubDate: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
+              pubDate: parsedDate.toISOString(),
               link,
               tickers: [ticker],
             })
@@ -141,15 +165,15 @@ async function fetchYahooSearch(): Promise<NewsItem[]> {
         try {
           const result = await (yf as any).search(ticker)
           const news = Array.isArray(result?.news) ? result.news : []
-          return news.map((item: any) => ({
-            headline: item.title || "",
-            source: item.publisher || "Yahoo Finance",
-            pubDate: item.providerPublishTime
-              ? new Date(item.providerPublishTime * 1000).toISOString()
-              : new Date().toISOString(),
-            link: item.link || "",
-            tickers: [ticker],
-          }))
+          return news
+            .filter((item: any) => item.providerPublishTime && headlineMentionsTicker(item.title || "", ticker))
+            .map((item: any) => ({
+              headline: item.title || "",
+              source: item.publisher || "Yahoo Finance",
+              pubDate: new Date(item.providerPublishTime * 1000).toISOString(),
+              link: item.link || "",
+              tickers: [ticker],
+            }))
         } catch {
           return []
         }
