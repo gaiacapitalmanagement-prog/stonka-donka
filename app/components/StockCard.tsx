@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { getStockColor } from "../lib/stockColors";
 
 export type StockData = {
   ticker: string;
@@ -26,8 +27,6 @@ function VerdictBadge({ text }: { text: string }) {
     return <span className="text-xs font-bold px-2 py-0.5 rounded bg-green-500/20 text-green-400 border border-green-500/30">BUY</span>;
   if (upper.startsWith("UNLOAD"))
     return <span className="text-xs font-bold px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">UNLOAD</span>;
-  if (upper.startsWith("HOLD"))
-    return <span className="text-xs font-bold px-2 py-0.5 rounded bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">HOLD</span>;
   return null;
 }
 
@@ -40,10 +39,11 @@ export function StockCard({ stock }: { stock: StockData }) {
   const positive = (stock.change ?? 0) >= 0;
   const { label, color } = fearGreedLabel(stock.sentiment);
   const currencyPrefix = stock.currency === "USD" ? "$" : `${stock.currency} `;
+  const sc = getStockColor(stock.ticker);
 
   async function openModal() {
     setOpen(true);
-    setAnalysis("");
+    if (analysis) return; // Use cached analysis
     setLoading(true);
     try {
       const res = await fetch("/api/analyze", {
@@ -90,11 +90,12 @@ export function StockCard({ stock }: { stock: StockData }) {
       {/* Card */}
       <button
         onClick={openModal}
-        className="text-left bg-[#111111] border border-white/8 rounded-xl p-4 flex flex-col gap-3 hover:border-white/25 hover:bg-[#161616] transition-all cursor-pointer w-full"
+        className="text-left bg-[var(--bg-card)] border rounded-xl p-4 flex flex-col gap-3 hover:bg-[var(--bg-card-hover)] transition-all cursor-pointer w-full"
+        style={{ borderColor: sc.border }}
       >
         <div>
-          <span className="text-lg font-bold tracking-tight">{stock.ticker}</span>
-          <p className="text-xs text-zinc-500 mt-0.5 truncate">{stock.name}</p>
+          <span className="text-lg font-bold tracking-tight" style={{ color: sc.text }}>{stock.ticker}</span>
+          <p className="text-xs text-[var(--text-faint)] mt-0.5 truncate">{stock.name}</p>
         </div>
         <div>
           {stock.price != null ? (
@@ -107,18 +108,18 @@ export function StockCard({ stock }: { stock: StockData }) {
               </p>
             </>
           ) : (
-            <p className="text-sm text-zinc-600">Data unavailable</p>
+            <p className="text-sm text-[var(--text-dim)]">Data unavailable</p>
           )}
         </div>
         <div className="space-y-1.5">
           <div className="flex justify-between items-center">
-            <span className="text-xs text-zinc-500">52W Position</span>
-            <span className="text-xs font-semibold text-zinc-300">{stock.sentiment}</span>
+            <span className="text-xs text-[var(--text-faint)]">52W Position</span>
+            <span className="text-xs font-semibold text-[var(--text-secondary)]">{stock.sentiment}</span>
           </div>
-          <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
+          <div className="w-full h-1.5 bg-[var(--bar-bg)] rounded-full overflow-hidden">
             <div className={`h-full rounded-full ${color}`} style={{ width: `${stock.sentiment}%` }} />
           </div>
-          <p className="text-xs text-zinc-500">{label}</p>
+          <p className="text-xs text-[var(--text-faint)]">{label}</p>
         </div>
       </button>
 
@@ -128,16 +129,16 @@ export function StockCard({ stock }: { stock: StockData }) {
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
           onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}
         >
-          <div className="bg-[#111111] border border-white/10 rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden">
+          <div className="bg-[var(--bg-card)] border border-[var(--border-light)] rounded-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
             {/* Modal header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/8 shrink-0">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] shrink-0">
               <div>
                 <span className="font-bold text-lg">{stock.ticker}</span>
-                <span className="text-zinc-500 text-sm ml-2">{stock.name}</span>
+                <span className="text-[var(--text-faint)] text-sm ml-2">{stock.name}</span>
               </div>
               <button
                 onClick={closeModal}
-                className="text-zinc-500 hover:text-white transition-colors text-xl leading-none"
+                className="text-[var(--text-faint)] hover:text-[var(--text-primary)] transition-colors text-xl leading-none cursor-pointer"
               >
                 ✕
               </button>
@@ -156,41 +157,41 @@ export function StockCard({ stock }: { stock: StockData }) {
               </div>
 
               {/* AI analysis panel */}
-              <div className="lg:w-72 border-t lg:border-t-0 lg:border-l border-white/8 p-5 flex flex-col gap-3 overflow-y-auto">
+              <div className="lg:w-72 border-t lg:border-t-0 lg:border-l border-[var(--border)] p-5 flex flex-col gap-3 overflow-y-auto">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold uppercase tracking-widest text-zinc-500">AI Analysis</span>
+                  <span className="text-xs font-semibold uppercase tracking-widest text-[var(--text-faint)]">AI Analysis</span>
                   {loading && (
-                    <span className="inline-block w-1.5 h-3.5 bg-zinc-400 animate-pulse rounded-sm" />
+                    <span className="inline-block w-1.5 h-3.5 bg-[var(--text-muted)] animate-pulse rounded-sm" />
                   )}
                 </div>
 
                 {analysis ? (
                   <>
                     <VerdictBadge text={analysis} />
-                    <p className="text-sm text-zinc-300 leading-relaxed whitespace-pre-wrap">
-                      {analysis.replace(/^(BUY|HOLD|UNLOAD)\s*/i, "")}
+                    <p className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap">
+                      {analysis.replace(/^(BUY|UNLOAD)\s*/i, "")}
                     </p>
                   </>
                 ) : loading ? (
-                  <p className="text-sm text-zinc-600 italic">Analyzing...</p>
+                  <p className="text-sm text-[var(--text-dim)] italic">Analyzing...</p>
                 ) : null}
 
-                <div className="mt-auto pt-3 border-t border-white/8 space-y-1">
+                <div className="mt-auto pt-3 border-t border-[var(--border)] space-y-1">
                   <div className="flex justify-between text-xs">
-                    <span className="text-zinc-600">Price</span>
-                    <span className="text-zinc-400">
+                    <span className="text-[var(--text-dim)]">Price</span>
+                    <span className="text-[var(--text-muted)]">
                       {stock.price != null ? `${currencyPrefix}${stock.price.toFixed(2)}` : "—"}
                     </span>
                   </div>
                   <div className="flex justify-between text-xs">
-                    <span className="text-zinc-600">Daily</span>
+                    <span className="text-[var(--text-dim)]">Daily</span>
                     <span className={stock.change != null && stock.change >= 0 ? "text-green-400" : "text-red-400"}>
                       {stock.change != null ? `${stock.change >= 0 ? "+" : ""}${stock.change.toFixed(2)}%` : "—"}
                     </span>
                   </div>
                   <div className="flex justify-between text-xs">
-                    <span className="text-zinc-600">52W Position</span>
-                    <span className="text-zinc-400">{stock.sentiment}/100</span>
+                    <span className="text-[var(--text-dim)]">52W Position</span>
+                    <span className="text-[var(--text-muted)]">{stock.sentiment}/100</span>
                   </div>
                 </div>
               </div>

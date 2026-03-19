@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
 - Daily change: ${changeStr}
 - 52-week position: ${sentiment}/100 (0 = at 52-week low, 100 = at 52-week high)
 
-Give a 3–4 sentence verdict. Start with one of: BUY, HOLD, or UNLOAD — then explain your reasoning based on the available data. Be blunt about risks. No disclaimers.`,
+Give a 3–4 sentence verdict. Start with exactly one of: BUY or UNLOAD — then explain your reasoning based on the available data. You must commit to a direction, no fence-sitting. Be blunt about risks. No disclaimers.`,
         },
       ],
     });
