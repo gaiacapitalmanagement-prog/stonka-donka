@@ -22,7 +22,7 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(d / 30)}mo ago`
 }
 
-export function NewsFeed() {
+export function NewsFeed({ tickers }: { tickers: string[] }) {
   const [items, setItems] = useState<NewsItem[]>([])
   const [loading, setLoading] = useState(true)
   const [hasMore, setHasMore] = useState(true)
@@ -30,13 +30,15 @@ export function NewsFeed() {
   const pageRef = useRef(0)
   const loadingRef = useRef(false)
   const hasMoreRef = useRef(true)
+  const tickerKey = tickers.join(",")
+  const tickerKeyRef = useRef(tickerKey)
 
   const loadMore = useCallback(async () => {
     if (loadingRef.current || !hasMoreRef.current) return
     loadingRef.current = true
     setLoading(true)
     try {
-      const res = await fetch(`/api/news?page=${pageRef.current}`)
+      const res = await fetch(`/api/news?page=${pageRef.current}&tickers=${encodeURIComponent(tickerKeyRef.current)}`)
       if (!res.ok) throw new Error()
       const data = await res.json()
       setItems((prev) => [...prev, ...data.items])
@@ -51,9 +53,16 @@ export function NewsFeed() {
     }
   }, [])
 
+  // Reset when tickers change
   useEffect(() => {
+    tickerKeyRef.current = tickerKey
+    pageRef.current = 0
+    hasMoreRef.current = true
+    loadingRef.current = false
+    setItems([])
+    setHasMore(true)
     loadMore()
-  }, [loadMore])
+  }, [tickerKey, loadMore])
 
   useEffect(() => {
     const el = sentinelRef.current
