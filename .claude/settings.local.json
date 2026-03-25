@@ -12,7 +12,12 @@
       "Skill(claude-api)",
       "WebSearch",
       "Bash(npm uninstall:*)",
-      "Bash(curl -s \"https://finnhub.io/api/v1/company-news?symbol=ASTS&from=2026-03-10&to=2026-03-17&token=d6splj1r01qoqoir0os0d6splj1r01qoqoir0osg\")"
+      "Bash(curl -s \"https://finnhub.io/api/v1/company-news?symbol=ASTS&from=2026-03-10&to=2026-03-17&token=d6splj1r01qoqoir0os0d6splj1r01qoqoir0osg\")",
+      "Bash(npx next:*)",
+      "Bash(\"C:/Users/bodhi/Desktop/Bodhi persoonlijk/coding projects/stonka-donka/.env.local\")",
+      "Bash(cd:*)",
+      "Bash(curl:*)",
+      "Bash(node -e \":*)"
     ]
   }
 }
